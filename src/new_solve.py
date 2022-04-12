@@ -38,12 +38,12 @@ class Cnf:
         return self.clause_list == []
 
     def pure_literal_assign(self):
-        literals_to_check = iter(list(self.uniq_literals.keys()))
+        literals_to_check = iter(tuple(self.uniq_literals.keys()))
         literal = next(literals_to_check, None)
         while literal is not None:
             if self.uniq_literals[-literal] == 0:  # означает, что перед нами "чистый" литерал
                 self.solve.append(literal)
-                self.clause_list = self.use_new_literal(literal)[0]
+                self.clause_list = self.use_new_literal(literal)
             literal = next(literals_to_check, None)
 
     def unit_propagate(self):
@@ -54,7 +54,7 @@ class Cnf:
                 literal = self.clause_list[i][0]
                 self.solve.append(literal)
                 # удаляем все кластера где есть литерал из единичного клоза
-                self.clause_list = self.use_new_literal(literal)[0]
+                self.clause_list = self.use_new_literal(literal)
                 i = 0
             elif le == 0:
                 self.is_bad_solve = True
@@ -63,37 +63,42 @@ class Cnf:
                 i += 1
 
     def use_new_literal(self, literal, new=False):
-        if new:
-            uniqs = self.uniq_literals.copy()
-        else:
-            uniqs = self.uniq_literals
+        uniqs = self.uniq_literals.copy() if new else self.uniq_literals
         new_cnf = []
         i = 0
-        while i < len(self.clause_list) or not (uniqs[literal] == 0 and uniqs[-literal] == 0):
-            bad_clause = False
-            new_clause = []
-            for lit in self.clause_list[i]:
-                if lit == literal:
-                    bad_clause = True
-                    for lit_ in self.clause_list[i]:
-                        uniqs[lit_] -= 1
-                    break
-                elif lit == -literal:
-                    uniqs[lit] -= 1
-                else:
-                    new_clause.append(lit)
-            if not bad_clause:
-                new_cnf.append(new_clause)
+        while i < len(self.clause_list):
+            if uniqs[literal] == 0 and uniqs[-literal] == 0:
+                new_cnf.extend(self.clause_list[i:])
+                break
+            else:
+                bad_clause = False
+                new_clause = []
+                for lit in self.clause_list[i]:
+                    if lit == literal:
+                        bad_clause = True
+                        for lit_ in self.clause_list[i]:
+                            uniqs[lit_] -= 1
+                        break
+                    elif lit == -literal:
+                        uniqs[lit] -= 1
+                    else:
+                        new_clause.append(lit)
+                if not bad_clause:
+                    new_cnf.append(new_clause)
             i += 1
+
         uniqs += Counter()
-        return new_cnf, uniqs
+        if new:
+            return new_cnf, uniqs
+        else:
+            return new_cnf
 
     def next_cnf(self):
         literal = self.uniq_literals.most_common(1)[0][0]
         cnf1, uniqs1 = self.use_new_literal(literal, new=True)
-        cnf2, uniqs2 = self.use_new_literal(-literal)
+        cnf2 = self.use_new_literal(-literal)
         return Cnf(cnf1, self.solve + [literal], uniqs1), \
-               Cnf(cnf2, self.solve + [-literal], uniqs2)
+               Cnf(cnf2, self.solve + [-literal], self.uniq_literals)
 
     def get_solution(self):
 
