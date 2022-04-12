@@ -1,5 +1,5 @@
 from typing import List
-from random import choice
+from collections import Counter
 
 
 def pars_file(path):
@@ -25,38 +25,36 @@ class Cnf:
         if solve is None:
             solve = []
         self.solve = solve
-        self.cluster_list = cnf_
+        self.clause_list = cnf_
         self.is_bad_solve = False
         if uniq_literals is None:
             uniq_literals = self.get_uniq_literals()
         self.uniq_literals = uniq_literals
 
     def get_uniq_literals(self):
-        return set([literal for cluster in self.cluster_list for literal in cluster])
+        return Counter(literal for clause in self.clause_list for literal in clause)
 
     def solve_ready(self) -> bool:
-        return self.cluster_list == []
+        return self.clause_list == []
 
     def pure_literal_assign(self):
-        literals_to_check = iter(self.uniq_literals.copy())
+        literals_to_check = iter(list(self.uniq_literals.keys()))
         literal = next(literals_to_check, None)
         while literal is not None:
-            if -literal not in self.uniq_literals:  # означает, что перед нами "чистый" литерал
+            if self.uniq_literals[-literal] == 0:  # означает, что перед нами "чистый" литерал
                 self.solve.append(literal)
-                self.uniq_literals.remove(literal)
-                self.cluster_list = list(filter(lambda cluster: literal not in cluster, self.cluster_list))
+                self.clause_list = self.use_new_literal(literal)[0]
             literal = next(literals_to_check, None)
 
     def unit_propagate(self):
         i = 0
-        while i < len(self.cluster_list):
-            le = len(self.cluster_list[i])
+        while i < len(self.clause_list):
+            le = len(self.clause_list[i])
             if le == 1:
-                literal = self.cluster_list[i][0]
+                literal = self.clause_list[i][0]
                 self.solve.append(literal)
-                self.uniq_literals.remove(literal)
-                self.cluster_list = self.use_new_literal(
-                    literal)  # удаляем все кластера где есть литерал из единичного клоза
+                # удаляем все кластера где есть литерал из единичного клоза
+                self.clause_list = self.use_new_literal(literal)[0]
                 i = 0
             elif le == 0:
                 self.is_bad_solve = True
@@ -64,17 +62,38 @@ class Cnf:
             else:
                 i += 1
 
-    def use_new_literal(self, literal) -> List[List[int]]:
-        new_cnf = filter(lambda cluster: literal not in cluster, self.cluster_list)
-        new_cnf = list(map(
-            lambda cluster: list(filter(lambda lit: lit != -literal, cluster)), new_cnf
-        ))
-        return new_cnf
+    def use_new_literal(self, literal, new=False):
+        if new:
+            uniqs = self.uniq_literals.copy()
+        else:
+            uniqs = self.uniq_literals
+        new_cnf = []
+        i = 0
+        while i < len(self.clause_list) or not (uniqs[literal] == 0 and uniqs[-literal] == 0):
+            bad_clause = False
+            new_clause = []
+            for lit in self.clause_list[i]:
+                if lit == literal:
+                    bad_clause = True
+                    for lit_ in self.clause_list[i]:
+                        uniqs[lit_] -= 1
+                    break
+                elif lit == -literal:
+                    uniqs[lit] -= 1
+                else:
+                    new_clause.append(lit)
+            if not bad_clause:
+                new_cnf.append(new_clause)
+            i += 1
+        uniqs += Counter()
+        return new_cnf, uniqs
 
     def next_cnf(self):
-        literal = choice(choice(self.cluster_list))
-        return Cnf(self.use_new_literal(literal), self.solve + [literal], self.uniq_literals.copy()), \
-               Cnf(self.use_new_literal(-literal), self.solve + [-literal], self.uniq_literals)
+        literal = self.uniq_literals.most_common(1)[0][0]
+        cnf1, uniqs1 = self.use_new_literal(literal, new=True)
+        cnf2, uniqs2 = self.use_new_literal(-literal)
+        return Cnf(cnf1, self.solve + [literal], uniqs1), \
+               Cnf(cnf2, self.solve + [-literal], uniqs2)
 
     def get_solution(self):
 
@@ -86,4 +105,4 @@ class Cnf:
 
         cnf1, cnf2 = self.next_cnf()
 
-        return sorted(cnf1.get_solution() or cnf2.get_solution(), key=abs)
+        return cnf1.get_solution() or cnf2.get_solution()
